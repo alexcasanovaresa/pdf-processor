@@ -1,8 +1,4 @@
 fastapi
 uvicorn
 pymupdf
-camelot-py[cv]
-ghostscript
-google-generativeai
 python-multipart
-opencv-python-headless
