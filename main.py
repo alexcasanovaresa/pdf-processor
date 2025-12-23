@@ -1,9 +1,9 @@
-# main.py para Railway con pdfplumber (más robusto que Camelot para PDFs digitales)
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import pdfplumber
+import fitz  # PyMuPDF
 import tempfile
 import os
+import re
 
 app = FastAPI()
 
@@ -16,7 +16,7 @@ app.add_middleware(
 
 @app.get("/")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "library": "PyMuPDF"}
 
 @app.post("/extract-pdf")
 async def extract_pdf(file: UploadFile = File(...)):
@@ -29,27 +29,36 @@ async def extract_pdf(file: UploadFile = File(...)):
         all_text = []
         all_tables = []
         
-        with pdfplumber.open(tmp_path) as pdf:
-            for page in pdf.pages:
-                # Extraer texto
-                text = page.extract_text() or ""
-                all_text.append(text)
-                
-                # Extraer tablas con configuración optimizada
-                tables = page.extract_tables({
-                    "vertical_strategy": "lines",
-                    "horizontal_strategy": "lines",
-                    "snap_tolerance": 5,
-                    "join_tolerance": 5,
-                })
-                
-                for table in tables:
-                    if table and len(table) > 1:  # Al menos header + 1 fila
-                        all_tables.append(table)
+        doc = fitz.open(tmp_path)
+        
+        for page_num, page in enumerate(doc):
+            # Extract text with better formatting
+            text = page.get_text("text")
+            all_text.append(f"=== Página {page_num + 1} ===\n{text}")
+            
+            # Try to extract tables using PyMuPDF's table detection
+            try:
+                tabs = page.find_tables()
+                for tab in tabs:
+                    table_data = tab.extract()
+                    if table_data and len(table_data) > 1:
+                        # Clean up table data
+                        cleaned_table = []
+                        for row in table_data:
+                            cleaned_row = [str(cell).strip() if cell else "" for cell in row]
+                            if any(cleaned_row):  # Skip empty rows
+                                cleaned_table.append(cleaned_row)
+                        if cleaned_table:
+                            all_tables.append(cleaned_table)
+            except Exception as e:
+                print(f"Table extraction error on page {page_num + 1}: {e}")
+        
+        doc.close()
         
         return {
-            "text": "\n".join(all_text),
-            "tables": all_tables
+            "text": "\n\n".join(all_text),
+            "tables": all_tables,
+            "pages": len(doc) if doc else 0
         }
     finally:
         os.unlink(tmp_path)
