@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import fitz  # PyMuPDF
+import pdfplumber
 import tempfile
 import os
 
@@ -16,7 +16,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "method": "pymupdf-extract"}
+    return {"status": "ok"}
 
 @app.post("/extract-pdf")
 async def extract_pdf(file: UploadFile = File(...)):
@@ -26,19 +26,19 @@ async def extract_pdf(file: UploadFile = File(...)):
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Extraer texto con PyMuPDF
-        doc = fitz.open(tmp_path)
         full_text = ""
         tables_data = []
-        
-        for page in doc:
-            full_text += page.get_text()
-            # Extraer tablas con PyMuPDF
-            tabs = page.find_tables()
-            for tab in tabs:
-                tables_data.append(tab.extract())
-        
-        doc.close()
+
+        with pdfplumber.open(tmp_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    full_text += text + "\n"
+                
+                tables = page.extract_tables()
+                for table in tables:
+                    tables_data.append(table)
+
         os.unlink(tmp_path)
 
         return {
